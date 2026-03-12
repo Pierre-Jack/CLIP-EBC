@@ -10,14 +10,14 @@ from .utils import load
 
 model_name_map = {
     "RN50": "resnet50",
-    "RN101": "resnet101",
-    "RN50x4": "resnet50x4",
-    "RN50x16": "resnet50x16",
-    "RN50x64": "resnet50x64",
-    "ViT-B/32": "vit_b_32",
-    "ViT-B/16": "vit_b_16",
-    "ViT-L/14": "vit_l_14",
-    "ViT-L/14@336px": "vit_l_14_336px",
+    # "RN101": "resnet101",
+    # "RN50x4": "resnet50x4",
+    # "RN50x16": "resnet50x16",
+    # "RN50x64": "resnet50x64",
+    # "ViT-B/32": "vit_b_32",
+    # "ViT-B/16": "vit_b_16",
+    # "ViT-L/14": "vit_l_14",
+    # "ViT-L/14@336px": "vit_l_14_336px",
 }
 
 
@@ -49,7 +49,8 @@ def prepare() -> None:
     os.makedirs(config_dir, exist_ok=True)
     device = torch.device("cpu")
 
-    for model_name in tqdm(["RN50", "RN101", "RN50x4", "RN50x16", "RN50x64", "ViT-B/32", "ViT-B/16", "ViT-L/14", "ViT-L/14@336px"]):
+    # for model_name in tqdm(["RN50", "RN101", "RN50x4", "RN50x16", "RN50x64", "ViT-B/32", "ViT-B/16", "ViT-L/14", "ViT-L/14@336px"]):
+    for model_name in tqdm(["RN50"]):
         model = load(model_name, device=device).to(device)
         image_encoder = model.visual.to(device)
         text_encoder = CLIPTextEncoderTemp(model).to(device)
