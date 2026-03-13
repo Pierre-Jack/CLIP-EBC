@@ -138,7 +138,8 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
         writer = get_writer(args.ckpt_dir)
         logger = get_logger(os.path.join(args.ckpt_dir, "train.log"))
         logger.info(get_config(vars(args), mute=False))
-        val_loader = get_dataloader(args, split="val", ddp=False)
+        # val_loader = get_dataloader(args, split="val", ddp=False)
+        val_loader, _ = get_dataloader_dali(args, split="val", ddp=False)
 
     args.batch_size = int(args.batch_size / nprocs)
     args.num_workers = int(args.num_workers / nprocs)
