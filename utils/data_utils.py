@@ -9,447 +9,68 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 
 import datasets
+# from nvidia.dali import pipeline_def, fn, types
+
+# import numpy as np
+# from scipy.ndimage import gaussian_filter
+
+
+
+# from nvidia.dali import pipeline_def
+# import nvidia.dali.fn as fn
+# import nvidia.dali.types as types
+# from nvidia.dali.plugin.pytorch.experimental import proxy as dali_proxy
+
 from nvidia.dali import pipeline_def, fn, types
-
-import numpy as np
-from scipy.ndimage import gaussian_filter
-
-
-# def transform_points(points, orig_w, orig_h, new_size, flip):
-
-#     if len(points) == 0:
-#         return points.astype(np.float32)
-
-#     pts = points.copy()
-
-#     # resize scale
-#     sx = new_size / orig_w
-#     sy = new_size / orig_h
-
-#     pts[:,0] *= sx
-#     pts[:,1] *= sy
-
-#     if flip:
-#         pts[:,0] = new_size - pts[:,0]
-
-#     return pts.astype(np.float32)
-
-
-# def points_to_dotmap(points, H, W):
-
-#     density = np.zeros((1, H, W), dtype=np.float32)
-
-#     if len(points) > 0:
-#         pts = points.astype(np.int64)
-
-#         pts[:,0] = np.clip(pts[:,0], 0, W-1)
-#         pts[:,1] = np.clip(pts[:,1], 0, H-1)
-
-#         density[0, pts[:,1], pts[:,0]] = 1.0
-
-#     return density
-
-
-# def blur_density(dotmap, sigma):
-
-#     return gaussian_filter(dotmap, sigma=sigma)
-
-# @pipeline_def
-# def crowd_dali_pipeline(args, split="train"):
-#     # Receives the file path or raw bytes from the Dataset
-#     encoded_images = fn.external_source(name="images", no_copy=True)
-    
-#     if split == "train":
-#         # Decode and RandomResizedCrop in one shot on GPU
-#         images = fn.decoders.image_random_crop(
-#             encoded_images,
-#             device="mixed",
-#             output_type=types.RGB,
-#             random_area=[args.min_scale, args.max_scale],
-#             # DALI handles aspect ratio slightly differently; usually [0.75, 1.33]
-#         )
-#         images = fn.resize(images, size=[args.input_size, args.input_size])
-#         images = fn.flip(images, horizontal=fn.random.coin_flip(probability=0.5))
-        
-#         # Color Jitter
-#         images = fn.color_twist(
-#             images,
-#             brightness=fn.random.uniform(range=[1-args.brightness, 1+args.brightness]),
-#             contrast=fn.random.uniform(range=[1-args.contrast, 1+args.contrast]),
-#             saturation=fn.random.uniform(range=[1-args.saturation, 1+args.saturation]),
-#             hue=fn.random.uniform(range=[-args.hue, args.hue])
-#         )
-        
-#         # Gaussian Blur
-#         # 1. Define a random distribution for sigma
-#         # This creates a different value for every image in the batch
-#         sigma_val = fn.random.uniform(range=[0.1, 5.0])
-
-#         # 2. Apply it to the images
-#         # window_size is usually the 'kernel_size' from your args
-#         images = fn.gaussian_blur(
-#             images, 
-#             window_size=args.kernel_size, 
-#             sigma=sigma_val
-# )
-        
-#     else:
-#         # Evaluation mode: Just decode and resize
-#         images = fn.decoders.image(encoded_images, device="mixed", output_type=types.RGB)
-#         if args.sliding_window:
-#             # You'd implement Resize2Multiple logic here or via fn.resize
-#             pass
-
-#     # Final Normalization (CLIP / ImageNet)
-#     output = fn.crop_mirror_normalize(
-#         images,
-#         dtype=types.FLOAT,
-#         output_layout="CHW",
-#         mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
-#         std=[0.229 * 255, 0.224 * 255, 0.225 * 255]
-#     )
-#     return output
-
-
-
-# @pipeline_def
-# def crowd_dali_pipeline(args, split="train"):
-
-#     # -------------------------------------------------
-#     # INPUTS
-#     # -------------------------------------------------
-
-#     encoded_images = fn.external_source(name="images", no_copy=True)
-#     points = fn.external_source(name="labels")   # Nx2 float
-
-
-#     # -------------------------------------------------
-#     # DECODE
-#     # -------------------------------------------------
-
-#     images = fn.decoders.image(
-#         encoded_images,
-#         device="mixed",
-#         output_type=types.RGB
-#     )
-
-
-#     # -------------------------------------------------
-#     # IMAGE SIZE
-#     # -------------------------------------------------
-
-#     shape = fn.shapes(images)
-
-#     height = fn.slice(shape, 0, 1, axes=[0])
-#     width  = fn.slice(shape, 1, 1, axes=[0])
-
-
-#     # -------------------------------------------------
-#     # RANDOM CROP PARAMETERS
-#     # -------------------------------------------------
-
-#     if split == "train":
-
-#         crop_scale = fn.random.uniform(
-#             range=[args.min_scale, args.max_scale]
-#         )
-
-#         crop_w = crop_scale * width
-#         crop_h = crop_scale * height
-
-#         crop_x = fn.random.uniform(range=[0.0, 1.0]) * (width - crop_w)
-#         crop_y = fn.random.uniform(range=[0.0, 1.0]) * (height - crop_h)
-
-#         images = fn.slice(
-#             images,
-#             start=fn.cat(crop_y, crop_x),
-#             shape=fn.cat(crop_h, crop_w),
-#             axes=[0, 1]
-#         )
-
-#         flip_coin = fn.random.coin_flip(probability=0.5)
-
-#     else:
-
-#         crop_x = 0
-#         crop_y = 0
-#         crop_w = width
-#         crop_h = height
-#         flip_coin = 0
-
-
-#     # -------------------------------------------------
-#     # RESIZE + FLIP
-#     # -------------------------------------------------
-
-#     images = fn.resize(images, size=[args.input_size, args.input_size])
-
-#     images = fn.flip(images, horizontal=flip_coin)
-
-
-#     # -------------------------------------------------
-#     # LABEL TRANSFORM
-#     # -------------------------------------------------
-
-#     scale_x = args.input_size / crop_w
-#     scale_y = args.input_size / crop_h
-
-#     offset = fn.cat(crop_x, crop_y)
-
-#     points = points - offset
-
-#     scale = fn.cat(scale_x, scale_y)
-
-#     points = points * scale
-
-
-#     # split coordinates
-#     x = fn.slice(points, 0, 1, axes=[1])
-#     y = fn.slice(points, 1, 1, axes=[1])
-
-
-#     # flip transform
-#     x_flip = args.input_size - 1 - x
-
-#     flipped = fn.cat(x_flip, y, axis=1)
-
-#     mask = fn.cast(flip_coin, dtype=types.FLOAT)
-
-#     points = mask * flipped + (1 - mask) * points
-
-#     transformed_points = points
-
-
-#     # -------------------------------------------------
-#     # NORMALIZATION
-#     # -------------------------------------------------
-
-#     output_image = fn.crop_mirror_normalize(
-#         images,
-#         dtype=types.FLOAT,
-#         output_layout="CHW",
-#         mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
-#         std=[0.229 * 255, 0.224 * 255, 0.225 * 255]
-#     )
-
-
-#     return output_image, transformed_points
-
-from nvidia.dali import pipeline_def
-import nvidia.dali.fn as fn
-import nvidia.dali.types as types
 from nvidia.dali.plugin.pytorch.experimental import proxy as dali_proxy
+import torch
 
 @pipeline_def
 def crowd_dali_pipeline(args, split="train"):
-
-    # -------------------------------------------------
-    # INPUTS
-    # -------------------------------------------------
-
+    # 1. Inputs
     encoded_images = fn.external_source(name="images", no_copy=True)
     points = fn.external_source(name="labels", no_copy=True)
-    impulses = fn.external_source(name="impulses", no_copy=True)
-    # encoded_images, points = fn.external_source(num_outputs=2)
-    jpegs = fn.io.file.read(encoded_images)
-    images = fn.decoders.image(jpegs, device="mixed", output_type=types.RGB, hw_decoder_load=0.9)
+    
+    # 2. Get the shape ON THE CPU before decoding (Fixes the ValueError & DeprecationWarning)
+    # fn.peek_image_shape returns a 1D CPU tensor: [H, W, C]
+    shape = fn.peek_image_shape(encoded_images)
+    h = fn.cast(fn.slice(shape, start=[0], shape=[1], axes=[0]), dtype=types.FLOAT)
+    w = fn.cast(fn.slice(shape, start=[1], shape=[1], axes=[0]), dtype=types.FLOAT)
 
+    # 3. Decode the image to GPU
+    images = fn.decoders.image(
+        encoded_images, 
+        device="mixed", 
+        output_type=types.RGB, 
+        hw_decoder_load=0.9
+    )
 
-    # -------------------------------------------------
-    # DECODE
-    # -------------------------------------------------
-
-    # images = fn.decoders.image(
-    #     encoded_images,
-    #     device="mixed",
-    #     output_type=types.RGB
-    # )
-
-
-    # -------------------------------------------------
-    # IMAGE SIZE
-    # -------------------------------------------------
-
-    # shape = fn.shapes(images)
-
-    # height = fn.slice(shape, 0, 1, axes=[0])
-    # width  = fn.slice(shape, 1, 1, axes=[0])
-    shape = images.shape()
-
-    height = fn.slice(shape, 0, 1, axes=[0])
-    width  = fn.slice(shape, 1, 1, axes=[0])
-
-
-    # -------------------------------------------------
-    # RANDOM CROP PARAMETERS
-    # -------------------------------------------------
-
+    # 4. Spatial Transform Math (All safely executing on CPU)
     if split == "train":
-
-        # crop_scale = fn.random.uniform(
-        #     range=[args.min_scale, args.max_scale]
-        # )
-
-        # crop_w = crop_scale * width
-        # crop_h = crop_scale * height
-
-        # crop_x = fn.random.uniform(range=[0.0, 1.0]) * (width - crop_w)
-        # crop_y = fn.random.uniform(range=[0.0, 1.0]) * (height - crop_h)
-
-        # images = fn.slice(
-        #     images,
-        #     start=fn.cat(crop_y, crop_x),
-        #     shape=fn.cat(crop_h, crop_w),
-        #     axes=[0, 1]
-        # )
-
         crop_scale = fn.random.uniform(range=[args.min_scale, args.max_scale])
+        crop_w = crop_scale * w
+        crop_h = crop_scale * h
 
-        crop_w = crop_scale * width
-        crop_h = crop_scale * height
-
-        crop_x = fn.random.uniform(range=[0.0, 1.0]) * (width - crop_w)
-        crop_y = fn.random.uniform(range=[0.0, 1.0]) * (height - crop_h)
-
-        start = fn.cat(crop_y, crop_x).cpu()
-        crop_shape = fn.cat(crop_h, crop_w).cpu()
-
-        images = fn.slice(
-            images,
-            start=start,
-            shape=crop_shape,
-            axes=[0,1]
-        )
-        impulses = fn.slice(
-            impulses,
-            start=start,
-            shape=crop_shape,
-            axes=[0,1]
-        )
+        crop_x = fn.random.uniform(range=[0.0, 1.0]) * (w - crop_w)
+        crop_y = fn.random.uniform(range=[0.0, 1.0]) * (h - crop_h)
+        
         flip_coin = fn.random.coin_flip(probability=0.5)
-
     else:
+        crop_w, crop_h = w, h
+        crop_x, crop_y = fn.constant(val=0.0), fn.constant(val=0.0)
+        flip_coin = fn.constant(val=0, dtype=types.INT32)
 
-        crop_x = 0
-        crop_y = 0
-        crop_w = width
-        crop_h = height
-        flip_coin = 0
+    # 5. Apply to Images
+    start = fn.cast(fn.cat(crop_y, crop_x), dtype=types.INT32)
+    crop_shape = fn.cast(fn.cat(crop_h, crop_w), dtype=types.INT32)
 
-
-    # -------------------------------------------------
-    # RESIZE + FLIP
-    # -------------------------------------------------
-
+    images = fn.slice(images, start=start, shape=crop_shape, axes=[0, 1], 
+                      out_of_bounds_policy="pad",
+                      fill_values=0)
     images = fn.resize(images, size=[args.input_size, args.input_size])
-
     images = fn.flip(images, horizontal=flip_coin)
-    impulses = fn.resize(impulses, size=[args.input_size, args.input_size], interp_type=types.INTERP_NN)
 
-    impulses = fn.flip(impulses, horizontal=flip_coin)
-
-
-    # -------------------------------------------------
-    # LABEL TRANSFORM
-    # -------------------------------------------------
-
-    scale_x = args.input_size / crop_w
-    scale_y = args.input_size / crop_h
-
-    offset = fn.cat(crop_x, crop_y)
-
-    points = points - offset
-
-    scale = fn.cat(scale_x, scale_y)
-
-    points = points * scale
-
-
-    # split coordinates
-    x = fn.slice(points, 0, 1, axes=[1])
-    y = fn.slice(points, 1, 1, axes=[1])
-
-
-    # flip transform
-    x_flip = args.input_size - 1 - x
-
-    flipped = fn.cat(x_flip, y, axis=1)
-
-    mask = fn.cast(flip_coin, dtype=types.FLOAT)
-
-    points = mask * flipped + (1 - mask) * points
-
-    transformed_points = points
-
-    # -------------------------------------------------
-    # DENSITY MAP GENERATION
-    # -------------------------------------------------
-
-    # points_clamped = fn.clip(
-    #     transformed_points,
-    #     min=0.0,
-    #     max=float(args.input_size - 1)
-    # )
-
-    x = fn.slice(transformed_points, 0, 1, axes=[1])
-    y = fn.slice(transformed_points, 1, 1, axes=[1])
-
-    x = fn.cast(x, dtype=types.INT32)
-    y = fn.cast(y, dtype=types.INT32)
-
-    # density_map = fn.zeros(
-    #     shape=[args.input_size, args.input_size],
-    #     dtype=types.FLOAT
-    # )
-
-    # density_map = fn.coord_transform(
-    #     density_map,
-    #     x=x,
-    #     y=y,
-    #     value=1.0
-    # )
-
-    # density_map = fn.coord_transform(density_map, x=x, y=y, value=1.0)
-    # density_map = fn.expand_dims(density_map, axes=[0])
-    density_map = fn.expand_dims(impulses, axes=[0])
-
-    # -------------------------------------------------
-    # DENSITY MAP GENERATION (GPU)
-    # -------------------------------------------------
-
-    # density_map = fn.splat(
-    #     transformed_points,
-    #     shape=[args.input_size, args.input_size],
-    #     dtype=types.FLOAT
-    # )
-
-    # if args.sigma is not None:
-
-    #     density_map = fn.gaussian_blur(
-    #         density_map,
-    #         sigma=args.sigma
-    #     )
-
-    # density_map = fn.expand_dims(density_map, axes=[0])
-
-
-    # impulses = fn.external_source(name="impulses")
-
-    # density_map = impulses
-
-    # if args.sigma is not None:    # sigma always none
-    #     density_map = fn.gaussian_blur(
-    #         density_map,
-    #         sigma=args.sigma
-    #     )
-
-    # density_map = fn.expand_dims(density_map, axes=[0])
-
-    # -------------------------------------------------
-    # NORMALIZATION
-    # -------------------------------------------------
-
-    output_image = fn.crop_mirror_normalize(
+    images = fn.crop_mirror_normalize(
         images,
         dtype=types.FLOAT,
         output_layout="CHW",
@@ -457,29 +78,135 @@ def crowd_dali_pipeline(args, split="train"):
         std=[0.229 * 255, 0.224 * 255, 0.225 * 255]
     )
 
+    # 6. Apply identical math to Points
+    offset = fn.cat(crop_x, crop_y, axis=0)
+    points = points - offset
 
-    # -------------------------------------------------
-    # OUTPUTS
-    # -------------------------------------------------
+    scale_x = args.input_size / crop_w
+    scale_y = args.input_size / crop_h
+    scale = fn.cat(scale_x, scale_y, axis=0)
+    points = points * scale
 
-    return output_image, transformed_points, density_map
+    x = fn.slice(points, start=[0], shape=[1], axes=[1])
+    y = fn.slice(points, start=[1], shape=[1], axes=[1])
+    
+    x_flip = (args.input_size - 1.0) - x
+    flipped_points = fn.cat(x_flip, y, axis=1)
+
+    mask = fn.cast(flip_coin, dtype=types.FLOAT)
+    transformed_points = mask * flipped_points + (1.0 - mask) * points
+
+    #FIX: Pad ragged arrays to a uniform dense shape for the batch
+    padded_points = fn.pad(transformed_points, fill_value=-1.0)
+    
+    return images, padded_points
+
+# def generate_density_map_gpu(label, height: int, width: int, device: torch.device) -> torch.Tensor:
+#     """
+#     Runs instantly on the GPU. Safely handles NumPy arrays coming from DALI's ragged outputs.
+#     """
+#     # 1. Force the incoming numpy array into a PyTorch tensor on the correct GPU
+#     label_tensor = torch.as_tensor(label, device=device)
+    
+#     # 2. Create the blank density map on the GPU
+#     density_map = torch.zeros((1, height, width), dtype=torch.float32, device=device)
+    
+#     if len(label_tensor) > 0:
+#         label_ = label_tensor.long()
+#         label_[:, 0] = label_[:, 0].clamp(min=0, max=width - 1)
+#         label_[:, 1] = label_[:, 1].clamp(min=0, max=height - 1)
+#         density_map[0, label_[:, 1], label_[:, 0]] = 1.0
+        
+#     return density_map
+
+# class DaliOutputWrapper:
+#     """Wraps the DALI loader to exactly match the original collate_fn output."""
+#     def __init__(self, loader, input_size):
+#         self.loader = loader
+#         self.input_size = input_size
+
+#     def __iter__(self):
+#         for data in self.loader:
+#             images, points_batch = data
+            
+#             # 1. Handle the list of tensors generated by our custom collate_fn
+#             if isinstance(images, list):
+#                 # Extract device from the first image tensor
+#                 device = images[0].device
+#                 # Stack them back into a [B, C, H, W] tensor
+#                 images = torch.stack(images, dim=0)
+#             else:
+#                 device = images.device
+                
+#             # 2. Handle if points_batch happens to be a stacked Tensor (if N was identical)
+#             if isinstance(points_batch, torch.Tensor):
+#                 points_batch = list(torch.unbind(points_batch, dim=0))
+
+#             densities = []
+#             points_tensor_list = []
+            
+#             for pts in points_batch:
+#                 # Generate the density map safely on the GPU
+#                 density = generate_density_map_gpu(pts, self.input_size, self.input_size, device)
+#                 densities.append(density)
+                
+#                 # Convert the ragged point arrays into PyTorch GPU tensors
+#                 points_tensor_list.append(torch.as_tensor(pts, device=device))
+            
+#             densities = torch.stack(densities, dim=0)
+            
+#             # Yield exactly what the train() loop expects
+#             yield images, points_tensor_list, densities
+
+#     def __len__(self):
+#         return len(self.loader)
+
+def generate_density_map_gpu(label: torch.Tensor, height: int, width: int, device: torch.device) -> torch.Tensor:
+    # Ensure standard PyTorch formatting
+    label_tensor = torch.as_tensor(label, device=device)
+    density_map = torch.zeros((1, height, width), dtype=torch.float32, device=device)
+    
+    if len(label_tensor) > 0:
+        label_ = label_tensor.long()
+        label_[:, 0] = label_[:, 0].clamp(min=0, max=width - 1)
+        label_[:, 1] = label_[:, 1].clamp(min=0, max=height - 1)
+        density_map[0, label_[:, 1], label_[:, 0]] = 1.0
+        
+    return density_map
 
 
+class ProxyOutputWrapper:
+    """Safely converts the 2-output proxy batch into the required 3-output PyTorch batch."""
+    def __init__(self, loader, input_size):
+        self.loader = loader
+        self.input_size = input_size
 
+    def __iter__(self):
+        # The proxy native DataLoader guarantees these are PyTorch GPU Tensors
+        for images, points_batch in self.loader:
+            device = images.device
+            
+            densities = []
+            points_list = []
 
+            # Unbind if DALI returned a perfectly stacked tensor, otherwise iterate the list
+            if isinstance(points_batch, torch.Tensor):
+                points_iterable = list(torch.unbind(points_batch, dim=0))
+            else:
+                points_iterable = points_batch
+
+            for pts in points_iterable:
+                pts_tensor = torch.as_tensor(pts, device=device)
+                points_list.append(pts_tensor)
+                densities.append(generate_density_map_gpu(pts_tensor, self.input_size, self.input_size, device))
+            
+            densities = torch.stack(densities, dim=0)
+            
+            yield images, points_list, densities
+
+    def __len__(self):
+        return len(self.loader)
 def get_dataloader_dali(args, split="train", ddp=False):
-
-    dataset = datasets.CrowdDali(
-        dataset=args.dataset,
-        split=split,
-        return_filename=False,
-        input_size=args.input_size,
-    )
-
-    # ----------------------------
-    # Build pipeline
-    # ----------------------------
-
     pipe = crowd_dali_pipeline(
         args=args,
         split=split,
@@ -489,16 +216,18 @@ def get_dataloader_dali(args, split="train", ddp=False):
         prefetch_queue_depth=2 * args.num_workers,
     )
 
-    # ----------------------------
-    # DALI server
-    # ----------------------------
-
     dali_server = dali_proxy.DALIServer(pipe)
 
-    # ----------------------------
-    # DataLoader
-    # ----------------------------
+    # 1. Pass the proxy directly to the Dataset
+    dataset = datasets.CrowdDali(
+        dataset=args.dataset,
+        split=split,
+        input_size=args.input_size,
+        return_filename=False,
+        transform=dali_server.proxy,
+    )
 
+    # 2. No custom collate functions. The proxy natively hooks default_collate.
     loader = dali_proxy.DataLoader(
         dali_server,
         dataset,
@@ -507,7 +236,7 @@ def get_dataloader_dali(args, split="train", ddp=False):
         drop_last=(split == "train"),
     )
 
-    return loader
+    return ProxyOutputWrapper(loader, args.input_size), None
 
 def get_dataloader(args: ArgumentParser, split: str = "train", ddp: bool = False) -> Union[Tuple[DataLoader, Union[DistributedSampler, None]], DataLoader]:
     if split == "train":  # train, strong augmentation
@@ -575,68 +304,3 @@ def get_dataloader(args: ArgumentParser, split: str = "train", ddp: bool = False
         )
         return data_loader
     
-# def get_dataloader_dali(args: ArgumentParser, split: str = "train", ddp: bool = False) -> Union[Tuple[DataLoader, Union[DistributedSampler, None]], DataLoader]:
-#     if split == "train":  # train, strong augmentation
-#         transforms = Compose([
-#             datasets.RandomResizedCrop((args.input_size, args.input_size), scale=(args.min_scale, args.max_scale)),
-#             datasets.RandomHorizontalFlip(),
-#             datasets.RandomApply([
-#                 datasets.ColorJitter(brightness=args.brightness, contrast=args.contrast, saturation=args.saturation, hue=args.hue),
-#                 datasets.GaussianBlur(kernel_size=args.kernel_size, sigma=(0.1, 5.0)),
-#                 datasets.PepperSaltNoise(saltiness=args.saltiness, spiciness=args.spiciness),
-#             ], p=(args.jitter_prob, args.blur_prob, args.noise_prob)),
-#         ])
-
-#     # elif args.sliding_window:
-#     #     if args.resize_to_multiple:
-#     #         transforms = datasets.Resize2Multiple(args.window_size, stride=args.stride)
-#     #     elif args.zero_pad_to_multiple:
-#     #         transforms = datasets.ZeroPad2Multiple(args.window_size, stride=args.stride)
-#     #     else:
-#     #         transforms = None
-
-#     else:
-#         transforms = None
-
-#     dataset = datasets.CrowdDali(
-#         dataset=args.dataset,
-#         split=split,
-#         transforms=None,
-#         sigma=None,
-#         return_filename=False,
-#         num_crops= 1,
-#     )
-
-#     if ddp and split == "train":  # data_loader for training in DDP
-#         sampler = DistributedSampler(dataset)
-#         data_loader = DataLoader(
-#             dataset,
-#             batch_size=args.batch_size,
-#             sampler=sampler,
-#             num_workers=args.num_workers,
-#             pin_memory=True,
-#             collate_fn=datasets.collate_fn,
-#         )
-#         return data_loader, sampler
-
-#     elif split == "train":  # data_loader for training
-#         data_loader = DataLoader(
-#             dataset,
-#             batch_size=args.batch_size,
-#             shuffle=True,
-#             num_workers=args.num_workers,
-#             pin_memory=True,
-#             collate_fn=datasets.collate_fn,
-#         )
-#         return data_loader, None
-
-#     else:  # data_loader for evaluation
-#         data_loader = DataLoader(
-#             dataset,
-#             batch_size=1,  # Use batch size 1 for evaluation
-#             shuffle=False,
-#             num_workers=args.num_workers,
-#             pin_memory=True,
-#             collate_fn=datasets.collate_fn,
-#         )
-#         return data_loader
