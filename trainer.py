@@ -13,7 +13,7 @@ from datasets import standardize_dataset_name
 from models import get_model
 
 from utils import setup, cleanup, init_seeds, get_logger, get_config, barrier
-from utils import get_dataloader, get_loss_fn, get_optimizer, load_checkpoint, save_checkpoint
+from utils import get_dataloader, get_dataloader_dali, get_loss_fn, get_optimizer, load_checkpoint, save_checkpoint
 from utils import get_writer, update_train_result, update_eval_result, log
 from train import train
 from eval import evaluate
@@ -142,7 +142,8 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
 
     args.batch_size = int(args.batch_size / nprocs)
     args.num_workers = int(args.num_workers / nprocs)
-    train_loader, sampler = get_dataloader(args, split="train", ddp=ddp)
+    # train_loader, sampler = get_dataloader(args, split="train", ddp=ddp)
+    train_loader, sampler = get_dataloader_dali(args, split="train", ddp=ddp)
 
     model = DDP(nn.SyncBatchNorm.convert_sync_batchnorm(model), device_ids=[local_rank], output_device=local_rank) if ddp else model
 
