@@ -7,7 +7,7 @@ from glob import glob
 from PIL import Image
 import numpy as np
 from typing import Optional, Callable, Union, Tuple
-import cv2
+# import cv2 ########### messes up the dependencies
 
 from .utils import get_id, generate_density_map
 
