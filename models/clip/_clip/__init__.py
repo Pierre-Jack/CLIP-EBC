@@ -19,7 +19,7 @@ clip_model_names = [
     # "clip_resnet50x16",
     # "clip_resnet50x64",
     # "clip_vit_b_32",
-    # "clip_vit_b_16",
+    "clip_vit_b_16",
     # "clip_vit_l_14",
     # "clip_vit_l_14_336px",
 ]
@@ -247,7 +247,7 @@ __all__ = [
     # "resnet50x16_clip",
     # "resnet50x64_clip",
     # "vit_b_32_clip",
-    # "vit_b_16_clip",
+    "vit_b_16_clip",
     # "vit_l_14_clip",
     # "vit_l_14_336px_clip",
     # clip image encoders
@@ -257,7 +257,7 @@ __all__ = [
     # "resnet50x16_img",
     # "resnet50x64_img",
     # "vit_b_32_img",
-    # "vit_b_16_img",
+    "vit_b_16_img",
     # "vit_l_14_img",
     # "vit_l_14_336px_img",
     # clip text encoders
@@ -267,7 +267,7 @@ __all__ = [
     # "resnet50x16_txt",
     # "resnet50x64_txt",
     # "vit_b_32_txt",
-    # "vit_b_16_txt",
+    "vit_b_16_txt",
     # "vit_l_14_txt",
     # "vit_l_14_336px_txt",
 ]
