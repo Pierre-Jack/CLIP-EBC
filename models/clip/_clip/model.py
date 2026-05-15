@@ -5,25 +5,25 @@ import numpy as np
 from typing import Tuple, Union
 
 from .image_encoder import ModifiedResNet, VisionTransformer
-from .text_encoder import LayerNorm, Transformer
+from .text_encoder import LayerNorm, Transformer, DeepPromptCLIPTextEncoder
 
 
 class CLIP(nn.Module):
     def __init__(
-        self,
-        embed_dim: int,
-        # vision
-        image_resolution: int,
-        vision_layers: Union[Tuple[int, int, int, int], int],
-        vision_width: int,
-        vision_patch_size: int,
-        # text
-        context_length: int,
-        vocab_size: int,
-        transformer_width: int,
-        transformer_heads: int,
-        transformer_layers: int
-        ) -> None:
+            self,
+            embed_dim: int,
+            # vision
+            image_resolution: int,
+            vision_layers: Union[Tuple[int, int, int, int], int],
+            vision_width: int,
+            vision_patch_size: int,
+            # text
+            context_length: int,
+            vocab_size: int,
+            transformer_width: int,
+            transformer_heads: int,
+            transformer_layers: int
+    ) -> None:
         super().__init__()
         self.embed_dim = embed_dim
         self.image_resolution = image_resolution
@@ -58,26 +58,27 @@ class CLIP(nn.Module):
                 features_only=False,
             )
         self.vision_heads = vision_heads
-        self.transformer = Transformer(
-            width=transformer_width,
-            layers=transformer_layers,
-            heads=transformer_heads,
-            attn_mask=self.build_attention_mask()
+
+        # --- DE-CLIP MODIFICATION ---
+        # Replace the standard Transformer and Text Embeddings with the
+        # DeepPromptCLIPTextEncoder which handles the causal masks and deep prompt injection
+        self.text_encoder = DeepPromptCLIPTextEncoder(
+            embed_dim=embed_dim,
+            context_length=context_length,
+            vocab_size=vocab_size,
+            transformer_width=transformer_width,
+            transformer_heads=transformer_heads,
+            transformer_layers=transformer_layers,
+            num_tokens=8,  # Configurable parameter for deep prompts
+            prompt_depth=12  # Configurable parameter for injection depth
         )
 
-        self.token_embedding = nn.Embedding(vocab_size, transformer_width)
-        self.positional_embedding = nn.Parameter(torch.empty(self.context_length, transformer_width))
-        self.ln_final = LayerNorm(transformer_width)
-
-        self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
 
         self.initialize_parameters()
 
     def initialize_parameters(self):
-        nn.init.normal_(self.token_embedding.weight, std=0.02)
-        nn.init.normal_(self.positional_embedding, std=0.01)
-
+        # We rely on text_encoder initialization for text components
         if isinstance(self.visual, ModifiedResNet):
             if self.visual.attnpool is not None:
                 std = self.visual.attnpool.c_proj.in_features ** -0.5
@@ -91,25 +92,18 @@ class CLIP(nn.Module):
                     if name.endswith("bn3.weight"):
                         nn.init.zeros_(param)
 
-        proj_std = (self.transformer.width ** -0.5) * ((2 * self.transformer.layers) ** -0.5)
-        attn_std = self.transformer.width ** -0.5
-        fc_std = (2 * self.transformer.width) ** -0.5
-        for block in self.transformer.resblocks:
+        proj_std = (self.text_encoder.transformer.width ** -0.5) * ((2 * self.text_encoder.transformer.layers) ** -0.5)
+        attn_std = self.text_encoder.transformer.width ** -0.5
+        fc_std = (2 * self.text_encoder.transformer.width) ** -0.5
+        for block in self.text_encoder.transformer.resblocks:
             nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
             nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
             nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
             nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
 
-        if self.text_projection is not None:
-            nn.init.normal_(self.text_projection, std=self.transformer.width ** -0.5)
-
     def build_attention_mask(self):
-        # lazily create causal attention mask, with full attention between the vision tokens
-        # pytorch uses additive attention mask; fill with -inf
-        mask = torch.empty(self.context_length, self.context_length)
-        mask.fill_(float("-inf"))
-        mask.triu_(1)  # zero out the lower diagonal
-        return mask
+        # Kept for backward compatibility if other parts of the code call it on CLIP
+        return self.text_encoder.build_attention_mask(self.context_length)
 
     @property
     def dtype(self):
@@ -119,19 +113,8 @@ class CLIP(nn.Module):
         return self.visual(image.type(self.dtype))
 
     def encode_text(self, text):
-        x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
-
-        x = x + self.positional_embedding.type(self.dtype)
-        x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x)
-        x = x.permute(1, 0, 2)  # LND -> NLD
-        x = self.ln_final(x).type(self.dtype)
-
-        # x.shape = [batch_size, n_ctx, transformer.width]
-        # take features from the eot embedding (eot_token is the highest number in each sequence)
-        x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection
-
-        return x
+        # Delegate directly to the new DeepPromptCLIPTextEncoder
+        return self.text_encoder(text)
 
     def forward(self, image, text):
         image_features = self.encode_image(image)
@@ -147,7 +130,7 @@ class CLIP(nn.Module):
         logits_per_text = logits_per_image.t()
 
         # shape = [global_batch_size, global_batch_size]
-        return logits_per_image, logits_per_text
+        return logits_per_image, logits_per_text, image_features, text_features
 
 
 def convert_weights(model: nn.Module):
@@ -179,12 +162,14 @@ def build_model(state_dict: dict):
 
     if vit:
         vision_width = state_dict["visual.conv1.weight"].shape[0]
-        vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
+        vision_layers = len(
+            [k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
         vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
         grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
         image_resolution = vision_patch_size * grid_size
     else:
-        counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(f"visual.layer{b}"))) for b in [1, 2, 3, 4]]
+        counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(f"visual.layer{b}"))) for b in
+                        [1, 2, 3, 4]]
         vision_layers = tuple(counts)
         vision_width = state_dict["visual.layer1.0.conv1.weight"].shape[0]
         output_width = round((state_dict["visual.attnpool.positional_embedding"].shape[0] - 1) ** 0.5)
@@ -192,12 +177,19 @@ def build_model(state_dict: dict):
         assert output_width ** 2 + 1 == state_dict["visual.attnpool.positional_embedding"].shape[0]
         image_resolution = output_width * 32
 
-    embed_dim = state_dict["text_projection"].shape[1]
-    context_length = state_dict["positional_embedding"].shape[0]
-    vocab_size = state_dict["token_embedding.weight"].shape[0]
-    transformer_width = state_dict["ln_final.weight"].shape[0]
+    # Modified key checks to align with the new DeepPromptCLIPTextEncoder structure
+    embed_dim = state_dict.get("text_encoder.text_projection", state_dict.get("text_projection")).shape[1]
+    context_length = state_dict.get("text_encoder.positional_embedding", state_dict.get("positional_embedding")).shape[
+        0]
+    vocab_size = state_dict.get("text_encoder.token_embedding.weight", state_dict.get("token_embedding.weight")).shape[
+        0]
+    transformer_width = state_dict.get("text_encoder.ln_final.weight", state_dict.get("ln_final.weight")).shape[0]
     transformer_heads = transformer_width // 64
-    transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith("transformer.resblocks")))
+
+    # Check for transformer resblocks either inside text_encoder or top-level depending on how state_dict is saved
+    resblock_keys = [k for k in state_dict if
+                     k.startswith("text_encoder.transformer.resblocks") or k.startswith("transformer.resblocks")]
+    transformer_layers = len(set(k.split(".")[3] if "text_encoder" in k else k.split(".")[2] for k in resblock_keys))
 
     model = CLIP(
         embed_dim,
@@ -210,5 +202,6 @@ def build_model(state_dict: dict):
             del state_dict[key]
 
     convert_weights(model)
+    # strict=False is important here because we added new parameters (deep_prompts)
     model.load_state_dict(state_dict, strict=False)
     return model.eval()

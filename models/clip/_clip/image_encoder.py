@@ -3,6 +3,7 @@ from torch import nn, Tensor
 import torch.nn.functional as F
 from einops import rearrange
 from typing import Tuple, Union, Any, List, Iterable, Optional
+from math import sqrt
 
 from .blocks import LayerNorm, Transformer, Bottleneck, AttentionPool2d
 
@@ -223,3 +224,50 @@ class VisionTransformer(nn.Module):
             x = x[:, 0, :]
             x = x @ self.proj
         return x
+
+
+    class DeepPromptVisionTransformer(VisionTransformer):
+        def __init__(self, *args, num_tokens=32, prompt_depth=12, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.num_tokens = num_tokens
+            self.prompt_depth = prompt_depth
+
+            # Create deep prompts: [Depth, Batch (1), Num_Tokens, Embedding_Dim]
+            embed_dim = self.conv1.out_channels
+            self.deep_prompts = nn.Parameter(
+                torch.empty(prompt_depth, 1, num_tokens, embed_dim)
+            )
+            nn.init.normal_(self.deep_prompts, std=1 / sqrt(embed_dim))
+
+        def forward(self, x: torch.Tensor):
+            x = self.conv1(x)  # shape = [*, width, grid, grid]
+            x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
+            x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+
+            # Add class token and positional embedding (standard ViT)
+            x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype,
+                                                                          device=x.device), x], dim=1)
+            x = x + self.positional_embedding.to(x.dtype)
+            x = self.ln_pre(x)
+
+            x = x.permute(1, 0, 2)  # [Seq_len, Batch, Dim]
+
+            # --- DE-CLIP DEEP PROMPT INJECTION ---
+            for i, resblock in enumerate(self.transformer.resblocks):
+                if i < self.prompt_depth:
+                    # Expand deep prompt for the current batch size
+                    deep_prompt = self.deep_prompts[i].expand(-1, x.shape[1], -1).permute(2, 1, 0)
+
+                    # Prepend deep prompts to the sequence
+                    x = torch.cat([x[:1, :, :], deep_prompt, x[1:, :, :]], dim=0)
+
+                    # Pass through the Transformer block
+                    x = resblock(x)
+
+                    # Remove the deep prompts before passing to the next layer
+                    x = torch.cat([x[:1, :, :], x[1 + self.num_tokens:, :, :]], dim=0)
+                else:
+                    x = resblock(x)
+
+            x = x.permute(1, 0, 2)  # Back to [Batch, Seq_len, Dim]
+            return x

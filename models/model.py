@@ -63,14 +63,15 @@ class Classifier(nn.Module):
 
         self.classifier.apply(_init_weights)
 
-    def forward(self, x: Tensor) -> Union[Tensor, Tuple[Tensor, Tensor]]:
+    def forward(self, x: Tensor) -> Union[Tensor, Tuple[Tensor, Tensor, None, None]]:
         x = self.backbone(x)
         x = self.classifier(x)  # shape (B, C, H, W), where C = len(bins), x is the logits
 
         probs = x.softmax(dim=1)  # shape (B, C, H, W)
         exp = (probs * self.anchor_points.to(x.device)).sum(dim=1, keepdim=True)  # shape (B, 1, H, W)
         if self.training:
-            return x, exp
+            # NEW: Padding the return with None, None so train.py doesn't crash on standard models
+            return x, exp, None, None
         else:
             return exp
 

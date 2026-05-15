@@ -188,7 +188,7 @@ class CLIP_EBC(nn.Module):
         image_features = image_features.reshape(batch_size, -1, num_h_patches, num_w_patches)
         return image_features
 
-    def forward(self, x: Tensor) -> Union[Tensor, Tuple[Tensor, Tensor]]:
+    def forward(self, x: Tensor) -> Union[Tensor, Tuple[Tensor, Tensor, Tensor, Tensor]]:
         device = x.device
 
         x = self.image_encoder(x) if self.backbone in resnet_backbones else self._forward_vpt(x)
@@ -198,7 +198,13 @@ class CLIP_EBC(nn.Module):
         x = self.projection(x)
 
         image_features = x.permute(0, 2, 3, 1)  # shape (B, H, W, C)
-        text_features = self.text_encoder(self.text_prompts.to(device)) if self.text_features is None else self.text_features.to(device)  # shape (N, C)
+        text_features = self.text_encoder(
+            self.text_prompts.to(device)) if self.text_features is None else self.text_features.to(
+            device)  # shape (N, C)
+
+        # NOTE: WE NEED TO SAVE THE RAW FEATURES BEFORE THE DOT PRODUCT
+        raw_image_features = image_features.clone()
+        raw_text_features = text_features.clone()
 
         image_features = F.normalize(image_features, p=2, dim=-1)
         text_features = F.normalize(text_features, p=2, dim=-1)
@@ -212,10 +218,10 @@ class CLIP_EBC(nn.Module):
         exp = (probs * self.anchor_points.to(x.device)).sum(dim=1, keepdim=True)  # (B, 1, H, W)
 
         if self.training:
-            return logits, exp
+            # NEW: Returning the raw embeddings so CMAR can penalize rank distance!
+            return logits, exp, raw_image_features, raw_text_features
         else:
             return exp
-
 
 def _clip_ebc(
     backbone: str,
