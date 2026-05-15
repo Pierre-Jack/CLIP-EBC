@@ -16,8 +16,8 @@ def quantize_to_bins(target_density: torch.Tensor, anchor_points: torch.Tensor) 
     Required for the CMAR loss to establish rank comparisons.
     """
     # Reshape target_density to [Batch*Patches, 1] and anchors to [1, Num_Bins]
-    flat_density = target_density.view(-1, 1)
-    flat_anchors = anchor_points.view(1, -1).to(target_density.device)
+    flat_density = target_density.reshape(-1, 1)
+    flat_anchors = anchor_points.reshape(1, -1).to(target_density.device)
 
     # Find the index of the closest anchor point (L1 distance)
     distances = torch.abs(flat_density - flat_anchors)
@@ -59,6 +59,11 @@ def train(
                     if not regression:
                         # NEW: Unpack the features from the modified model wrapper
                         pred_class, pred_density, img_feats, txt_feats = model(image)
+
+                        # FOR DEBUGGING: Print the absolute sum of differences between the first two text embeddings to verify they are not identical (which would be a red flag)
+                        print("First 5 values of Text 0:", txt_feats[0][:5])
+                        print("Text Embeddings diff:", (txt_feats[0] - txt_feats[1]).abs().sum())
+
                         loss, loss_info = loss_fn(pred_class, pred_density, target_density, target_points)
                     else:
                         pred_density = model(image)
@@ -67,7 +72,35 @@ def train(
 
                     # NEW: Calculate and add CMAR loss
                     if cmar_criterion is not None and not regression and anchor_points is not None:
-                        gt_bins = quantize_to_bins(target_density, anchor_points)
+                        # 1. Get the spatial dimensions of the feature map (H=56, W=56)
+                        B, H, W, C = img_feats.shape
+
+                        # 2. Calculate the reduction factor between the target map and feature map
+                        pool_h = target_density.shape[-2] // H
+                        pool_w = target_density.shape[-1] // W
+
+                        # 3. Shrink the target density using average pooling.
+                        # CRITICAL: Multiply by the area (pool_h * pool_w) to preserve the total crowd count!
+                        target_density_shrunk = torch.nn.functional.avg_pool2d(
+                            target_density,
+                            kernel_size=(pool_h, pool_w),
+                            stride=(pool_h, pool_w)
+                        ) * (pool_h * pool_w)
+
+                        # 4. Grab the anchor points (handling DDP module wrapper if necessary)
+                        anchor_points = model.module.anchor_points if hasattr(model, 'module') else model.anchor_points
+
+                        # Push anchor_points to the GPU!
+                        anchor_points = anchor_points.to(target_density_shrunk.device)
+
+                        # 5. Quantize the shrunk density map to get the correct gt_bins
+                        diff = torch.abs(target_density_shrunk - anchor_points)
+                        gt_bins = torch.argmin(diff, dim=1)  # Shape becomes [B, H, W]
+
+                        # FOR DEBUGGING: Print unique bin indices to verify they are within expected range
+                        print("Unique Ground Truth Bins:", gt_bins.unique())
+
+                        # 6. Calculate CMAR loss
                         cmar_loss = cmar_criterion(img_feats, txt_feats, gt_bins)
 
                         loss = loss + (lambda_cmar * cmar_loss)
@@ -94,6 +127,11 @@ def train(
         optimizer.zero_grad()
         if grad_scaler is not None:
             grad_scaler.scale(loss).backward()
+
+            # PREVENT NAN LOSSES: Unscale the gradients and clip them so they can't explode
+            grad_scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+
             grad_scaler.step(optimizer)
             grad_scaler.update()
         else:

@@ -20,9 +20,9 @@ class CrossModalAlignmentRankingLoss(nn.Module):
         num_bins = text_features.shape[0]
 
         # Reshape to [Batch * H * W, Dim]
-        img_flat = image_features.view(-1, embed_dim)
+        img_flat = image_features.reshape(-1, embed_dim)
         # Reshape to [Batch * H * W]
-        gt_flat = ground_truth_bins.view(-1).long()
+        gt_flat = ground_truth_bins.reshape(-1).long()
 
         # 2. Normalize features
         img_flat = F.normalize(img_flat, dim=-1)

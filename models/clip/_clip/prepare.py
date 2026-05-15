@@ -53,7 +53,7 @@ def prepare() -> None:
     for model_name in tqdm(["RN50"]):
         model = load(model_name, device=device).to(device)
         image_encoder = model.visual.to(device)
-        text_encoder = CLIPTextEncoderTemp(model).to(device)
+        text_encoder = model.text_encoder.to(device)
         torch.save(model.state_dict(), os.path.join(weight_dir, f"clip_{model_name_map[model_name]}.pth"))
         torch.save(image_encoder.state_dict(), os.path.join(weight_dir, f"clip_image_encoder_{model_name_map[model_name]}.pth"))
         torch.save(text_encoder.state_dict(), os.path.join(weight_dir, f"clip_text_encoder_{model_name_map[model_name]}.pth"))

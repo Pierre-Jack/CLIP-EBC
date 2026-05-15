@@ -107,7 +107,9 @@ class CLIP_EBC(nn.Module):
         self.anchor_points = torch.tensor(anchor_points, dtype=torch.float32, requires_grad=False).view(1, -1, 1, 1)
 
         self._get_text_prompts()
+        print(f"Text prompts before tokenization: {self.text_prompts}")
         self._tokenize_text_prompts()
+        print(f"Text prompts after tokenization: {self.text_prompts}")
 
         if self.freeze_text_encoder:
             self._extract_text_features()

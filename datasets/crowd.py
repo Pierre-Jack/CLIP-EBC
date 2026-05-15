@@ -44,6 +44,7 @@ class Crowd(Dataset):
         sigma: Optional[float] = None,
         return_filename: bool = False,
         num_crops: int = 1,
+        dataset_path: Optional[str] = None,  # <--- 1. ADD THIS ARGUMENT
     ) -> None:
         """
         Dataset for crowd counting.
@@ -55,7 +56,10 @@ class Crowd(Dataset):
         self.dataset = standardize_dataset_name(dataset)
         self.split = split
 
-        self.__find_root__()
+        if dataset_path is not None:
+            self.root = os.path.join(dataset_path, self.dataset)
+        else:
+            self.__find_root__()
         self.__make_dataset__()
         self.__check_sanity__()
         self.indices = list(range(len(self.image_names)))

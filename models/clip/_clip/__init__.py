@@ -5,7 +5,7 @@ import json
 
 from .utils import tokenize, transform
 from .prepare import prepare
-from .text_encoder import CLIPTextEncoder
+from .text_encoder import CLIPTextEncoder, DeepPromptCLIPTextEncoder
 from .image_encoder import ModifiedResNet, VisionTransformer
 from .model import CLIP
 
@@ -126,19 +126,25 @@ def _vit(name: str, features_only: bool = False, input_size: Optional[Union[int,
     return model
 
 
-def _text_encoder(name: str) -> CLIPTextEncoder:
+def _text_encoder(name: str) -> DeepPromptCLIPTextEncoder:
     with open(os.path.join(curr_dir, "configs", f"clip_text_encoder_{name}.json"), "r") as f:
         config = json.load(f)
-    model = CLIPTextEncoder(
+
+    # --- DE-CLIP MODIFICATION ---
+    model = DeepPromptCLIPTextEncoder(
         embed_dim=config["embed_dim"],
         context_length=config["context_length"],
         vocab_size=config["vocab_size"],
         transformer_width=config["transformer_width"],
         transformer_heads=config["transformer_heads"],
-        transformer_layers=config["transformer_layers"]
+        transformer_layers=config["transformer_layers"],
+        num_tokens=8,  # DE-CLIP config: Deep prompt tokens
+        prompt_depth=12  # DE-CLIP config: Depth of injection
     )
+
     state_dict = torch.load(os.path.join(curr_dir, "weights", f"clip_text_encoder_{name}.pth"), map_location="cpu")
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+
     if len(missing_keys) > 0 or len(unexpected_keys) > 0:
         print(f"Missing keys: {missing_keys}")
         print(f"Unexpected keys: {unexpected_keys}")

@@ -1,5 +1,6 @@
 import torch
 from torch import nn, Tensor
+import wandb
 
 from torch.optim import Adam
 from torch.cuda.amp import GradScaler
@@ -101,13 +102,13 @@ def get_optimizer(args: ArgumentParser, model: nn.Module) -> Tuple[Adam, LambdaL
 
 
 def load_checkpoint(
-    args: ArgumentParser,
+    ckpt_path: str,
     model: nn.Module,
     optimizer: Adam,
     scheduler: LambdaLR,
     grad_scaler: GradScaler,
 ) -> Tuple[nn.Module, Adam, Union[LambdaLR, None], GradScaler, int, Union[Dict[str, float], None], Dict[str, List[float]], Dict[str, float]]:
-    ckpt_path = os.path.join(args.ckpt_dir, "ckpt.pth")
+    # ckpt_path = os.path.join(args.ckpt_dir, "ckpt.pth")
     if os.path.exists(ckpt_path):
         ckpt = torch.load(ckpt_path)
         model.load_state_dict(ckpt["model_state_dict"])
@@ -155,3 +156,4 @@ def save_checkpoint(
         "best_scores": best_scores,
     }
     torch.save(ckpt, os.path.join(ckpt_dir, "ckpt.pth"))
+    wandb.save(save_path, base_path=os.path.dirname(save_path), policy="now")

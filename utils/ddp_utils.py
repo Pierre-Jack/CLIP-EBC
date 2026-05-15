@@ -4,6 +4,7 @@ import torch.distributed as dist
 import numpy as np
 import random
 import os
+import datetime
 
 
 def reduce_mean(tensor: Tensor, nprocs: int) -> Tensor:
@@ -13,11 +14,11 @@ def reduce_mean(tensor: Tensor, nprocs: int) -> Tensor:
     return rt
 
 
-def setup(local_rank: int, nprocs: int) -> None:
+def setup(local_rank: int, nprocs: int, port: str = "12355") -> None:
     if nprocs > 1:
         os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "12355"
-        dist.init_process_group("nccl", rank=local_rank, world_size=nprocs)
+        os.environ["MASTER_PORT"] = port
+        dist.init_process_group("nccl", rank=local_rank, world_size=nprocs, timeout=datetime.timedelta(hours=3))
     else:
         print("Single process. No need to setup dist.")
 

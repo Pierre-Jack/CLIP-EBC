@@ -72,8 +72,16 @@ def sliding_window_predict(
 
     model.eval()
     with torch.no_grad():
-        preds = model(windows)
-    preds = preds.cpu().detach().numpy()
+        # PROCESS IN CHUNKS TO PREVENT VRAM FREEZING
+        chunk_size = 8  # Matches your safe training batch size
+        preds_list = []
+        for i in range(0, windows.shape[0], chunk_size):
+            chunk = windows[i: i + chunk_size]
+            preds_list.append(model(chunk).cpu())
+
+        preds = torch.cat(preds_list, dim=0)
+
+    preds = preds.numpy()
 
     # assemble the density map
     pred_map = np.zeros((preds.shape[1], image_height // reduction, image_width // reduction), dtype=np.float32)

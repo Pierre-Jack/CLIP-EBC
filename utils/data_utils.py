@@ -39,6 +39,7 @@ def get_dataloader(args: ArgumentParser, split: str = "train", ddp: bool = False
 
     dataset = datasets.Crowd(
         dataset=args.dataset,
+        dataset_path=args.dataset_path,  # <--- 3. ADD THIS LINE
         split=split,
         transforms=transforms,
         sigma=None,
