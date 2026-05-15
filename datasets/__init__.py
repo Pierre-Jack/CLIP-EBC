@@ -1,5 +1,5 @@
 from .crowd import Crowd, available_datasets, standardize_dataset_name, NWPUTest
-from .transforms import RandomCrop, Resize, RandomResizedCrop, RandomHorizontalFlip, Resize2Multiple, ZeroPad2Multiple
+from .transforms import RandomCrop, Resize, RandomResizedCrop, RandomHorizontalFlip, Resize2Multiple, ZeroPad2Multiple, CenterCrop
 from .transforms import ColorJitter, RandomGrayscale, GaussianBlur, RandomApply, PepperSaltNoise
 from .utils import collate_fn
 

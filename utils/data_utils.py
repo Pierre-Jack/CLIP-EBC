@@ -1,3 +1,4 @@
+### batch 1 eval
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torchvision.transforms.v2 import Compose
@@ -11,13 +12,15 @@ sys.path.append(parent_dir)
 import datasets
 
 
-def get_dataloader(args: ArgumentParser, split: str = "train", ddp: bool = False) -> Union[Tuple[DataLoader, Union[DistributedSampler, None]], DataLoader]:
+def get_dataloader(args: ArgumentParser, split: str = "train", ddp: bool = False) -> Union[
+    Tuple[DataLoader, Union[DistributedSampler, None]], DataLoader]:
     if split == "train":  # train, strong augmentation
         transforms = Compose([
             datasets.RandomResizedCrop((args.input_size, args.input_size), scale=(args.min_scale, args.max_scale)),
             datasets.RandomHorizontalFlip(),
             datasets.RandomApply([
-                datasets.ColorJitter(brightness=args.brightness, contrast=args.contrast, saturation=args.saturation, hue=args.hue),
+                datasets.ColorJitter(brightness=args.brightness, contrast=args.contrast, saturation=args.saturation,
+                                     hue=args.hue),
                 datasets.GaussianBlur(kernel_size=args.kernel_size, sigma=(0.1, 5.0)),
                 datasets.PepperSaltNoise(saltiness=args.saltiness, spiciness=args.spiciness),
             ], p=(args.jitter_prob, args.blur_prob, args.noise_prob)),
@@ -52,6 +55,8 @@ def get_dataloader(args: ArgumentParser, split: str = "train", ddp: bool = False
             num_workers=args.num_workers,
             pin_memory=True,
             collate_fn=datasets.collate_fn,
+            prefetch_factor=2,
+            persistent_workers=True,
         )
         return data_loader, sampler
 
@@ -63,16 +68,20 @@ def get_dataloader(args: ArgumentParser, split: str = "train", ddp: bool = False
             num_workers=args.num_workers,
             pin_memory=True,
             collate_fn=datasets.collate_fn,
+            prefetch_factor=2,
+            persistent_workers=True,
         )
         return data_loader, None
 
     else:  # data_loader for evaluation
         data_loader = DataLoader(
             dataset,
-            batch_size=1,  # Use batch size 1 for evaluation
+            batch_size= 8, #Use batch size 1 for evaluation (modified to by us to be 8)
             shuffle=False,
             num_workers=args.num_workers,
             pin_memory=True,
             collate_fn=datasets.collate_fn,
+            prefetch_factor=2,
+            persistent_workers=True,
         )
         return data_loader
